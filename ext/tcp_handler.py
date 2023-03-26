@@ -28,15 +28,16 @@ class SYNProxy(EventMixin):
             if ip_packet.protocol == ipv4.TCP_PROTOCOL:
                 tcp_packet = ip_packet.payload
                 if tcp_packet.SYN and not tcp_packet.ACK:
-                    # Handle incoming SYN packet
+                    # log.debug("Handle incoming SYN packet")
                     self.handle_syn(event, packet, ip_packet, tcp_packet)
                 elif tcp_packet.ACK and not tcp_packet.SYN:
-                    # Handle incoming ACK packet from client
+                    # log.debug("Handle incoming ACK packet from client")
                     self.handle_ack_from_client(event, packet, ip_packet, tcp_packet)
                 elif tcp_packet.SYN and tcp_packet.ACK:
-                    # Handle incoming SYN-ACK packet from server
+                    # log.debug("Handle incoming SYN-ACK packet from server")
                     self.handle_syn_ack_from_server(event, packet, ip_packet, tcp_packet)
                 else:
+                    log.debug("Just forward")
                     self.forward_packet(event)
 
     def handle_syn(self, event, packet, ip_packet, tcp_packet):
@@ -116,7 +117,7 @@ class SYNProxy(EventMixin):
                              dstport=connection_info['server_port'],
                              seq=original_seq,
                              off=5,
-                             flags=tcp.SYN)
+                             flags=tcp.SYN_flag)
         syn_packet.payload = syn_ip_packet
         syn_ip_packet.payload = syn_tcp_packet
         return syn_packet.pack()
@@ -133,7 +134,7 @@ class SYNProxy(EventMixin):
                              seq=original_ack - 1,
                              ack=server_seq,
                              off=5,
-                             flags=tcp.ACK)
+                             flags=tcp.ACK_flag)
         ack_packet.payload = ack_ip_packet
         ack_ip_packet.payload = ack_tcp_packet
         return ack_packet.pack()
