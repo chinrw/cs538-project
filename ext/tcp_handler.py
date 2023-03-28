@@ -24,11 +24,11 @@ class SYNProxy(EventMixin):
             log.warning("Ignoring incomplete packet")
             return
 
-
         if packet.type == ethernet.IP_TYPE:
             ip_packet = packet.payload
             if ip_packet.protocol == ipv4.TCP_PROTOCOL:
                 # Update the mac_to_port dictionary
+                event.halt = True
                 self.mac_to_port[packet.src] = event.port
                 tcp_packet = ip_packet.payload
                 if tcp_packet.SYN and not tcp_packet.ACK:
@@ -41,8 +41,8 @@ class SYNProxy(EventMixin):
                     # log.debug("Handle incoming SYN-ACK packet from server")
                     self.handle_syn_ack_from_server(event, packet, ip_packet, tcp_packet)
                 else:
+                    event.halt = False
                     log.debug("Just forward")
-                    self.forward_packet(event)
 
     def handle_syn(self, event, packet, ip_packet, tcp_packet):
         log.debug("Handling SYN packet")
@@ -56,16 +56,17 @@ class SYNProxy(EventMixin):
             'client_mac': packet.src,
             'server_mac': packet.dst
         }
-        print(connection_info)
+        log.debug(connection_info)
         # Generate seq number for SYN-ACK packet
         proxy_seq = random.randint(1, 2**32 - 1)  
         self.syn_proxy_state[proxy_seq] = connection_info
 
         # Create and send a SYN-ACK packet with the modified sequence number
+        log.debug("Sending SYN-ACK packet to client")
         syn_ack = self.create_syn_ack_packet(connection_info, proxy_seq)
         output_port = self.mac_to_port.get(connection_info['client_mac'], of.OFPP_FLOOD)
         self.send_packet_out(event.connection, syn_ack, event.port, output_port)
-
+    
 
     def handle_ack_from_client(self, event, packet, ip_packet, tcp_packet):
         log.debug("Handling ACK packet from client")
@@ -89,8 +90,10 @@ class SYNProxy(EventMixin):
             if (connection_info['server_ip'] == ip_packet.srcip and
                     connection_info['server_port'] == tcp_packet.srcport):
                 # Send the ACK packet to the client with the original sequence number
+                log.debug("Found matching connection, sending ACK packet to server")
                 ack_packet = self.create_ack_packet(connection_info, tcp_packet.seq + 1, proxy_seq + 1)
-                output_port = self.mac_to_port.get(connection_info['client_mac'], of.OFPP_FLOOD)
+                # output_port = self.mac_to_port.get(connection_info['client_mac'], of.OFPP_FLOOD)
+                output_port = of.OFPP_FLOOD
                 self.send_packet_out(event.connection, ack_packet, event.port, output_port)
                 break
         else:
@@ -110,9 +113,10 @@ class SYNProxy(EventMixin):
                                  seq=proxy_seq,
                                  ack=connection_info['original_seq'] + 1,
                                  off=5,
-                                 flags=tcp.SYN_flag and tcp.ACK_flag)
+                                 flags=tcp.SYN_flag | tcp.ACK_flag)
         syn_ack_packet.payload = syn_ack_ip_packet
         syn_ack_ip_packet.payload = syn_ack_tcp_packet
+        log.debug(syn_ack_tcp_packet)
         return syn_ack_packet.pack()
 
     def create_syn_packet(self, connection_info, original_seq):
@@ -157,7 +161,7 @@ class SYNProxy(EventMixin):
     def send_packet_out(self, connection, packet_data, in_port, output_port):
         msg = of.ofp_packet_out()
         msg.data = packet_data
-        log.debug("Sending packet out on port %s", output_port)
+        log.debug("Sending packet out on port %s and in_port %s" , output_port, msg.in_port)
         msg.actions.append(of.ofp_action_output(port=output_port))
         msg.in_port = in_port
         connection.send(msg)
