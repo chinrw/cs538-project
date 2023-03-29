@@ -38,7 +38,12 @@ class SYNProxy(EventMixin):
                     self.handle_syn(event, packet, ip_packet, tcp_packet)
                 elif tcp_packet.ACK and not tcp_packet.SYN:
                     # log.debug("Handle incoming ACK packet from client")
-                    if (not self.handle_ack_from_client(
+                    connection_info = self.finding_connection_info(ip_packet, tcp_packet)
+                    if connection_info is not None and connection_info['finished_handshake']:
+                        log.debug("Translating and forwarding non-SYN packet")
+                        self.translate_and_forward_packet(
+                            event, packet, ip_packet, tcp_packet)
+                    elif (not self.handle_ack_from_client(
                             event, packet, ip_packet, tcp_packet)):
                         log.debug("Translating and forwarding non-SYN packet")
                         self.translate_and_forward_packet(
@@ -68,7 +73,8 @@ class SYNProxy(EventMixin):
             'client_mac': packet.src,
             'server_mac': packet.dst,
             'tcp_options': tcp_packet.options,
-            'tcp_window': tcp_packet.win,
+            'client_tcp_window': tcp_packet.win,
+            'server_tcp_window': None,
             'original_syn': tcp_packet,
             'client_ack': None,
             'finished_handshake': False
@@ -92,9 +98,8 @@ class SYNProxy(EventMixin):
         if proxy_seq in self.syn_proxy_state:
             connection_info = self.syn_proxy_state[proxy_seq]
             if connection_info['finished_handshake']:
-                log.warning(
+                log.debug(
                     "handshake already established, translate and forward")
-                # event.halt = False
                 return False
             original_seq = connection_info['original_seq']
             connection_info['client_ack'] = tcp_packet
@@ -134,7 +139,7 @@ class SYNProxy(EventMixin):
                 return connection_info
         else:
             log.warning("Unexpected SYN-ACK packet, dropping")
-            return
+            return None
 
     def handle_syn_ack_from_server(self, event, packet, ip_packet, tcp_packet):
         log.debug("Handling SYN-ACK packet from server")
@@ -148,6 +153,7 @@ class SYNProxy(EventMixin):
                     "Found matching connection, sending ACK packet to server")
                 ack_packet = self.create_ack_packet(
                     connection_info, tcp_packet.ack, connection_info['server_seq'] + 1)
+                connection_info['server_tcp_window'] = tcp_packet.win
                 # output_port = self.mac_to_port.get(
                 #     connection_info['client_mac'], of.OFPP_FLOOD)
                 output_port = 2
@@ -176,7 +182,7 @@ class SYNProxy(EventMixin):
                                  ack=connection_info['original_seq'] + 1,
                                  off=5,
                                  flags=tcp.SYN_flag | tcp.ACK_flag,
-                                 win=connection_info['tcp_window'],
+                                 win=connection_info['client_tcp_window'],
                                  options=connection_info['tcp_options'])
         syn_ack_packet.payload = syn_ack_ip_packet
         syn_ack_ip_packet.payload = syn_ack_tcp_packet
@@ -222,11 +228,15 @@ class SYNProxy(EventMixin):
             if (conn_info['client_ip'] == ip_packet.srcip and
                     conn_info['client_port'] == tcp_packet.srcport):
                 direction = 'client_to_server'
+                # conn_info['client_tcp_window'] = tcp_packet.win
+                # tcp_packet.win = conn_info['server_tcp_window']
                 connection_info = conn_info
                 break
             elif (conn_info['server_ip'] == ip_packet.srcip and
                     conn_info['server_port'] == tcp_packet.srcport):
                 direction = 'server_to_client'
+                # conn_info['server_tcp_window'] = tcp_packet.win
+                # tcp_packet.win = conn_info['client_tcp_window']
                 connection_info = conn_info
                 break
 
@@ -243,15 +253,15 @@ class SYNProxy(EventMixin):
         log.debug(
             f"Original packet, seq {tcp_packet.seq}, ack {tcp_packet.ack}")
         if direction == 'client_to_server':
-            diff = tcp_packet.ack - proxy_seq
+            diff = server_seq - proxy_seq
             output_port = self.mac_to_port.get(
                 connection_info['server_mac'], of.OFPP_FLOOD)
-            tcp_packet.ack = int(wrap_around(server_seq + diff))
+            tcp_packet.ack = wrap_around(tcp_packet.ack + diff)
         else:  # 'server_to_client'
-            diff = tcp_packet.ack - proxy_seq
-            tcp_packet.seq = wrap_around(tcp_packet.seq - original_seq - proxy_seq)
+            diff = tcp_packet.seq - proxy_seq - 1
             output_port = self.mac_to_port.get(
                 connection_info['client_mac'], of.OFPP_FLOOD)
+            tcp_packet.seq = wrap_around(tcp_packet.seq - diff)
 
         log.debug(tcp_packet)
         ip_packet.payload = tcp_packet
