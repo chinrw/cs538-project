@@ -31,6 +31,19 @@ class FlowKey(object):
 FlowState = Enum('FlowState', ['Initial', 'SpoofedSYNACK', 'SpoofedSYN', 'Established'])
 Placeholder = Enum('Placeholder', [])
 
+class whitelist:
+    def __init__(self):
+        self.whitelist = set()
+    
+    def add(self, ip: str):
+        self.whitelist.add(ip)
+
+    def remove(self, ip: str):
+        self.whitelist.remove(ip)
+
+    def __contains__(self, ip: str):
+        return ip in self.whitelist
+
 class FlowInfo:
     def __init__(self, tcp_packet: tcp):
         ip_packet: ipv4

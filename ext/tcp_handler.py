@@ -28,6 +28,7 @@ class SYNProxy(EventMixin):
     def __init__(self):
         self.listenTo(core.openflow)
         self.flow_table = {}
+        self.white_list = whitelist()
 
     def _handle_PacketIn(self, event):
         packet = event.parsed
@@ -45,9 +46,17 @@ class SYNProxy(EventMixin):
 
         event.halt = True
         tcp_packet = ip_packet.payload
+        flow = self.flow_table.get(get_flow(tcp_packet))
+        
         if tcp_packet.SYN and not tcp_packet.ACK:
             # log.debug("Handle incoming SYN packet")
             self.handle_syn(event, tcp_packet)
+        elif flow and flow.policy == 1:
+            if flow == self.flow_table.get(get_flow(tcp_packet)):
+                log.debug('Send ack to server')
+                self.handle_synack_whitelist(flow, event, tcp_packet)
+            else:
+                event.halt = False
         elif tcp_packet.ACK and not tcp_packet.SYN:
             # log.debug("Handle ACK packet")
             flow = self.flow_table.get(get_flow(tcp_packet))
@@ -76,6 +85,14 @@ class SYNProxy(EventMixin):
     def handle_syn(self, event, tcp_packet: tcp):
         flow = FlowInfo(tcp_packet)
         self.flow_table[get_flow(tcp_packet)] = flow
+
+        # Check if client is whitelisted
+        if flow.client.ip in self.white_list:
+            flow.policy = 1
+            log.debug('Whitelisted client, policy set to 1')
+            event.halt = False
+            return        
+
         # Create and send a SYN-ACK packet with the modified sequence number
         synack = spoofed_synack(flow)
         log.debug('Sending SYNACK to client')
@@ -98,6 +115,18 @@ class SYNProxy(EventMixin):
         flow.add_server_synack(tcp_packet)
         log.debug('Sending ACK to server')
         translate_packet(flow, flow.client_ack)
+        send_packet_out(event.connection, flow.client_ack, of.OFPP_NONE, event.port)
+        flow.clear_packets()
+
+        # add src ip to whitelist
+        self.white_list.add(flow.client.ip)
+    
+    def handle_synack_whitelist(self,flow, event, tcp_packet: tcp):
+        # TODO add spoofed ack delete event.halt
+        event.halt = False
+        return
+        # flow may not exist
+        flow.add_server_synack(tcp_packet)
         send_packet_out(event.connection, flow.client_ack, of.OFPP_NONE, event.port)
         flow.clear_packets()
 

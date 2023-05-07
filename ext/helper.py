@@ -25,6 +25,22 @@ def create_rst_packet(self, connection_info, seq_number):
     rst_ip_packet.payload = rst_tcp_packet
     return rst_packet.pack()
 
+def create_ack_packet(self, connection_info, server_seq, original_ack):
+    # Create an ACK packet from the server to the client
+    ack_packet = ethernet(src=connection_info['client_mac'],
+                          dst=connection_info['server_mac'],
+                          type=ethernet.IP_TYPE)
+    ack_ip_packet = ipv4(srcip=connection_info['client_ip'],
+                         dstip=connection_info['server_ip'],
+                         protocol=ipv4.TCP_PROTOCOL)
+    ack_tcp_packet = connection_info['client_ack']
+    ack_tcp_packet.seq = server_seq
+    ack_tcp_packet.ack = original_ack
+    ack_packet.payload = ack_ip_packet
+    ack_ip_packet.payload = ack_tcp_packet
+    return ack_packet.pack()
+
+
 def wrap_around(num):
     min_val = 0
     range_size = TCP_NUM - min_val
