@@ -24,7 +24,7 @@ class FlowKey(object):
 
     def __repr__(self):
         return f"FlowKey({self.a.ip}:{self.a.port},{self.b.ip}:{self.b.port})"
-    
+
     def __hash__(self):
         return hash((self.a, self.b))
 
@@ -34,7 +34,7 @@ Placeholder = Enum('Placeholder', [])
 class whitelist:
     def __init__(self):
         self.whitelist = set()
-    
+
     def add(self, ip: str):
         self.whitelist.add(ip)
 
@@ -45,7 +45,7 @@ class whitelist:
         return ip in self.whitelist
 
 class FlowInfo:
-    def __init__(self, tcp_packet: tcp):
+    def __init__(self, tcp_packet: tcp, policy: int):
         ip_packet: ipv4
         ip_packet = tcp_packet.prev
         packet: ethernet
@@ -53,7 +53,7 @@ class FlowInfo:
 
         self.client = IPPort(ip_packet.srcip, tcp_packet.srcport)
         self.client_mac = packet.src
-        
+
         self.server = IPPort(ip_packet.dstip, tcp_packet.dstport)
         self.server_mac = packet.dst
 
@@ -68,7 +68,7 @@ class FlowInfo:
         self.server_tcp_options = tcp_packet.options
         self.server_tcp_window = tcp_packet.win
 
-        self.policy = 0
+        self.policy = policy
 
         # state for policy 0
         self.proxy_seq = None
@@ -84,7 +84,7 @@ class FlowInfo:
         self.server_seq = tcp_packet.seq
         self.server_tcp_options = tcp_packet.options
         self.server_tcp_window = tcp_packet.win
-    
+
     # call this after sending out all spoofed packets
     def clear_packets(self):
         assert self.client_syn and self.client_ack
