@@ -4,6 +4,7 @@ from functools import total_ordering
 from collections import namedtuple
 from enum import Enum
 from random import randint
+from pox.lib.packet import tcp_opt
 # for type hints
 from pox.lib.packet import tcp, ipv4, ethernet
 from typing import Tuple, Union
@@ -24,7 +25,7 @@ class FlowKey(object):
 
     def __repr__(self):
         return f"FlowKey({self.a.ip}:{self.a.port},{self.b.ip}:{self.b.port})"
-    
+
     def __hash__(self):
         return hash((self.a, self.b))
 
@@ -40,11 +41,17 @@ class FlowInfo:
 
         self.client = IPPort(ip_packet.srcip, tcp_packet.srcport)
         self.client_mac = packet.src
-        
+
         self.server = IPPort(ip_packet.dstip, tcp_packet.dstport)
         self.server_mac = packet.dst
 
         # saved packeets for later use
+        # trick: disable TSOPT to avoid translating TSecr
+        # TODO: translate TSecr
+        idx = tcp_packet.find_option(tcp_opt.TSOPT)
+        if idx is not None:
+            del tcp_packet.options[idx]
+
         self.client_syn = tcp_packet
         self.client_ack = None
 
@@ -71,7 +78,7 @@ class FlowInfo:
         self.server_seq = tcp_packet.seq
         self.server_tcp_options = tcp_packet.options
         self.server_tcp_window = tcp_packet.win
-    
+
     # call this after sending out all spoofed packets
     def clear_packets(self):
         assert self.client_syn and self.client_ack

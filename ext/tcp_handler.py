@@ -28,6 +28,7 @@ class SYNProxy(EventMixin):
     def __init__(self):
         self.listenTo(core.openflow)
         self.flow_table = {}
+        self.mac_table = {}
 
     def _handle_PacketIn(self, event):
         packet = event.parsed
@@ -37,7 +38,10 @@ class SYNProxy(EventMixin):
         if packet.type != ethernet.IP_TYPE:
             log.warning("Handling ip packet only")
             return
-        
+
+        self.mac_table[packet.src] = event.port
+        # TODO: send RST instead of discarding invalid tcp
+
         ip_packet = packet.payload
         if ip_packet.protocol != ipv4.TCP_PROTOCOL:
             log.warning("Handling ipv4 packet only")
@@ -45,7 +49,15 @@ class SYNProxy(EventMixin):
 
         event.halt = True
         tcp_packet = ip_packet.payload
-        if tcp_packet.SYN and not tcp_packet.ACK:
+        if tcp_packet.RST:
+            # RST can replace SYNACK, when proxy_seq is not set
+            log.debug("Handle RST packet")
+            self.handle_rst(event, tcp_packet)
+        elif tcp_packet.FIN:
+            # seem to be the same as RST
+            log.debug("Handle FIN packet")
+            self.handle_fin(event, tcp_packet)
+        elif tcp_packet.SYN and not tcp_packet.ACK:
             # log.debug("Handle incoming SYN packet")
             self.handle_syn(event, tcp_packet)
         elif tcp_packet.ACK and not tcp_packet.SYN:
@@ -61,14 +73,6 @@ class SYNProxy(EventMixin):
         elif tcp_packet.SYN and tcp_packet.ACK:
             # log.debug("Handle incoming SYN-ACK packet from server")
             self.handle_synack(event, tcp_packet)
-        elif tcp_packet.RST:
-            # RST can replace SYNACK, when proxy_seq is not set
-            log.debug("Handle RST packet")
-            self.handle_rst_or_fin(event, tcp_packet)
-        elif tcp_packet.FIN:
-            # seem to be the same as RST
-            log.debug("Handle FIN packet")
-            self.handle_rst_or_fin(event, tcp_packet)
         else:
             # what else?
             log.warning(f'Unknown flag combination {tcp_packet.flags}, dropping')
@@ -81,14 +85,14 @@ class SYNProxy(EventMixin):
         log.debug('Sending SYNACK to client')
         send_packet_out(event.connection, synack, of.OFPP_NONE, event.port)
         flow.add_proxy_synack(synack)
-    
+
     def handle_handshake_ack(self, event, tcp_packet: tcp):
         # flow exists
         flow = self.flow_table.get(get_flow(tcp_packet))
         log.debug('Sending SYN to server')
-        send_packet_out(event.connection, flow.client_syn, event.port, of.OFPP_FLOOD)
+        send_packet_out(event.connection, flow.client_syn, event.port, self.dst_port(tcp_packet))
         flow.add_client_ack(tcp_packet)
-    
+
     def handle_synack(self, event, tcp_packet: tcp):
         # flow may not exist
         flow = self.flow_table.get(get_flow(tcp_packet))
@@ -102,11 +106,10 @@ class SYNProxy(EventMixin):
         flow.clear_packets()
 
     def handle_data_ack(self, event, tcp_packet: tcp):
-        # flow exists and seq complete
         log.debug('Forwarding ACK')
         self.translate_and_forward(event, tcp_packet)
 
-    def handle_rst_or_fin(self, event, tcp_packet: tcp):
+    def handle_rst(self, event, tcp_packet: tcp):
         # ignore if flow does not exist
         # if seq incomplete and rst comes from server
         flow = self.flow_table.get(get_flow(tcp_packet))
@@ -115,10 +118,10 @@ class SYNProxy(EventMixin):
             flow.server_seq = (tcp_packet.seq - 1) % TCP_NUM
         self.translate_and_forward(event, tcp_packet)
 
-    # def handle_fin(self, event, tcp_packet: tcp):
-    #     # same as handle_data_ack, but ignore if flow is not established
-    #     self.translate_and_forward(event, tcp_packet)
-    
+    def handle_fin(self, event, tcp_packet: tcp):
+        # same as handle_data_ack, but ignore if flow is not established
+        self.translate_and_forward(event, tcp_packet)
+
     def translate_and_forward(self, event, tcp_packet: tcp):
         flow = self.flow_table.get(get_flow(tcp_packet))
         state = flow and flow.get_state()
@@ -127,7 +130,10 @@ class SYNProxy(EventMixin):
             return
         log.debug('Translate and forward')
         translate_packet(flow, tcp_packet)
-        send_packet_out(event.connection, tcp_packet, event.port, of.OFPP_FLOOD)
+        send_packet_out(event.connection, tcp_packet, event.port, self.dst_port(tcp_packet))
+
+    def dst_port(self, tcp_packet: tcp):
+        return self.mac_table.get(tcp_packet.prev.prev.dst, of.OFPP_FLOOD)
 
     # def forward_packet(self, event):
     #     msg = of.ofp_packet_out()
