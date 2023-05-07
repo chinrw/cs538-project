@@ -52,7 +52,7 @@ class SYNProxy(EventMixin):
             return self.whitelist_policy
 
         # choose policy for new flow
-        if tcp_packet.SYN and tcp_packet.prev.srcip in self.stat:
+        if tcp_packet.SYN and not tcp_packet.ACK and tcp_packet.prev.srcip in self.stat:
             log.debug('New flow from whitelisted client')
             return self.whitelist_policy
 
