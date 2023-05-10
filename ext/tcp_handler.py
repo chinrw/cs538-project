@@ -136,6 +136,7 @@ class SYNSpoofingPolicy(Policy):
     def handle_syn(self, event, tcp_packet: tcp):
         flow = FlowInfo(tcp_packet, 0)
         self.flow_table[get_flow(tcp_packet)] = flow
+        self.stat.add_flow(flow)
         # Create and send a SYN-ACK packet with the modified sequence number
         synack = spoofed_synack(flow)
         log.debug("Sending SYNACK to client")

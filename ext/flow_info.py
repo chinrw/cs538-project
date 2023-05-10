@@ -104,9 +104,9 @@ class Host:
 
     def get_policy(self):
         if self.in_flight < self.threshold:
-            return 0
-        else:
             return 1
+        else:
+            return 0
 
 class HostCounter:
     def __init__(self):
