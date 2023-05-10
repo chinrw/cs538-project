@@ -40,6 +40,7 @@ class SYNProxy(EventMixin):
         flow_table = {}
         stat = {}
 
+        self.hosts_counter = HostCounter()
         self.mac_table = mac_table
         self.flow_table = flow_table
         self.stat = stat
@@ -70,7 +71,8 @@ class SYNProxy(EventMixin):
     def get_policy(self, tcp_packet: tcp):
         # policy is fixed for each flow
         flow = self.flow_table.get(get_flow(tcp_packet))
-        flow_policy = flow and flow.policy
+        flow_policy = self.hosts_counter.get_flow_policy(flow)
+
         if flow_policy == 0:
             return self.syn_spoofing_policy
         elif flow_policy == 1:

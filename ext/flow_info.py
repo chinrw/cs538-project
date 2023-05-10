@@ -31,14 +31,13 @@ FlowState = Enum('FlowState', ['Initial', 'SpoofedSYNACK', 'SpoofedSYN', 'Establ
 Placeholder = Enum('Placeholder', [])
 
 class Host:
-    def __init__(self, host_ip) -> None:
-        self.host_ip = host_ip
+    def __init__(self) -> None:
         self.flow_counter = 0
-        self.half_open_syn = 100
+        self.threshold  = 100
         self._lock = RLock()
     
-    def set_half_open_syn(self, num):
-        self.half_open_syn = num
+    def set_threshold(self, num):
+        self.threshold  = num
     
     def syn_received(self):
         with self._lock:
@@ -49,46 +48,35 @@ class Host:
             self.flow_counter -= 1
             assert self.flow_counter >= 0
     
-    def __hash__(self):
-        return hash(self.host_ip)
-    
-    def __eq__(self, o) -> bool:
-        return hasattr(o, 'host_ip') and self.host_ip == o.host_ip
-
 class HostCounter:
     def __init__(self):
         self.hosts = {}
 
-    def add_flow(self, host):
-        if host not in self.hosts:
+    def add_flow(self, client_ip):
+        if client_ip not in self.hosts:
             # policy 1 means passive, new host will set to 1
-            new_host = Host(host).syn_received()
-            self.hosts[new_host] = 1
+            new_host = Host()
+            new_host.syn_received()
+            self.hosts[client_ip] = new_host
         else:
-            self.hosts[host].syn_received()
-            self._update_policy(host)
+            self.hosts[client_ip].syn_received()
+            # self._update_policy(host)
     
-    def remove_flow(self, host):
-        if host not in self.hosts:
-            return
-        else:
-            self.hosts[host].tcp_connection_established()
-            self._update_policy(host)
+    def connection_established(self, client_ip):
+        assert client_ip in self.hosts
+        self.hosts[client_ip].tcp_connection_established()
     
-    def _update_policy(self, host):
-        if host not in self.hosts:
-            return
-        if self.hosts[host].host_counter > self.hosts[host].half_open_syn:
-            # set policy 0 for exceed than half_open_syn constant
-            self.hosts[host] = 0
-        else:
-            # set policy 1 for less than half_open_syn constant
-            self.hosts[host] = 1
-        
-    def proxy_policy(self, host):
-        if host not in self.hosts:
-            return None
-        return self.hosts[host]
+    def get_flow_policy(self, flow: FlowInfo):
+        host = self.hosts.get(flow.client.ip)
+        if host:
+            if host.host_counter > host.half_open_syn:
+                # set policy 0 for exceed than half_open_syn constant
+                return 
+            else:
+                # set policy 1 for less than half_open_syn constant
+                self.hosts[host] = 1
+        return 0
+
 
 class FlowInfo:
     def __init__(self, tcp_packet: tcp, policy: int):
