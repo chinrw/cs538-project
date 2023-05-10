@@ -31,16 +31,15 @@ def send_packet_out(connection: Connection, tcp_packet: tcp, in_port, output_por
 class SYNProxy(EventMixin):
     mac_table: Dict[EthAddr, int]
     flow_table: Dict[FlowKey, FlowInfo]
-    stat: Dict[IPAddr, any]
+    stat: HostCounter
 
     def __init__(self):
         self.listenTo(core.openflow)
 
         mac_table = {}
         flow_table = {}
-        stat = {}
+        stat = HostCounter()
 
-        self.hosts_counter = HostCounter()
         self.mac_table = mac_table
         self.flow_table = flow_table
         self.stat = stat
@@ -71,19 +70,14 @@ class SYNProxy(EventMixin):
     def get_policy(self, tcp_packet: tcp):
         # policy is fixed for each flow
         flow = self.flow_table.get(get_flow(tcp_packet))
-        flow_policy = self.hosts_counter.get_flow_policy(flow)
+        flow_policy = self.stat.get_flow_policy(flow)
 
         if flow_policy == 0:
             return self.syn_spoofing_policy
         elif flow_policy == 1:
             return self.whitelist_policy
 
-        # choose policy for new flow
-        if tcp_packet.SYN and not tcp_packet.ACK and tcp_packet.prev.srcip in self.stat:
-            log.debug("New flow from whitelisted client")
-            return self.whitelist_policy
-
-        return self.syn_spoofing_policy
+        raise ValueError("Unreachable")
 
 
 def launch():
@@ -95,7 +89,7 @@ class Policy(abc.ABC):
         self,
         mac_table: Dict[EthAddr, int],
         flow_table: Dict[FlowKey, FlowInfo],
-        stat: Dict[IPAddr, any],
+        stat: HostCounter,
     ):
         super().__init__()
         self.mac_table = mac_table
@@ -170,7 +164,7 @@ class SYNSpoofingPolicy(Policy):
         flow.clear_packets()
 
         # TCP established, update statistics
-        self.stat[flow.client.ip] = True
+        self.stat.flow_established(flow.client.ip)
 
     def handle_data_ack(self, event, tcp_packet: tcp):
         # flow exists and seq complete

@@ -2,7 +2,7 @@ from functools import total_ordering
 from collections import namedtuple
 from enum import Enum
 from random import randint
-from threading import RLock
+from collections import defaultdict
 # for type hints
 from pox.lib.packet import tcp, ipv4, ethernet
 from typing import Tuple, Union
@@ -29,53 +29,6 @@ class FlowKey(object):
 
 FlowState = Enum('FlowState', ['Initial', 'SpoofedSYNACK', 'SpoofedSYN', 'Established'])
 Placeholder = Enum('Placeholder', [])
-
-class Host:
-    def __init__(self) -> None:
-        self.flow_counter = 0
-        self.threshold  = 100
-        self._lock = RLock()
-    
-    def set_threshold(self, num):
-        self.threshold  = num
-    
-    def syn_received(self):
-        with self._lock:
-            self.flow_counter += 1
-    
-    def tcp_connection_established(self):
-        with self._lock:
-            self.flow_counter -= 1
-            assert self.flow_counter >= 0
-    
-class HostCounter:
-    def __init__(self):
-        self.hosts = {}
-
-    def add_flow(self, client_ip):
-        if client_ip not in self.hosts:
-            # policy 1 means passive, new host will set to 1
-            new_host = Host()
-            new_host.syn_received()
-            self.hosts[client_ip] = new_host
-        else:
-            self.hosts[client_ip].syn_received()
-            # self._update_policy(host)
-    
-    def connection_established(self, client_ip):
-        assert client_ip in self.hosts
-        self.hosts[client_ip].tcp_connection_established()
-    
-    def get_flow_policy(self, flow: FlowInfo):
-        host = self.hosts.get(flow.client.ip)
-        if host:
-            if host.host_counter > host.half_open_syn:
-                # set policy 0 for exceed than half_open_syn constant
-                return 
-            else:
-                # set policy 1 for less than half_open_syn constant
-                self.hosts[host] = 1
-        return 0
 
 
 class FlowInfo:
@@ -133,6 +86,43 @@ class FlowInfo:
         if self.server_seq is None:
             return FlowState.SpoofedSYN
         return FlowState.Established # i.e. Spoofed ACK
+
+class Host:
+    def __init__(self) -> None:
+        self.in_flight = 0
+        self.threshold  = 100
+
+    def set_threshold(self, num):
+        self.threshold  = num
+
+    def syn_received(self):
+        self.in_flight += 1
+
+    def tcp_established(self):
+        self.in_flight -= 1
+        assert self.in_flight >= 0
+
+    def get_policy(self):
+        if self.in_flight < self.threshold:
+            return 0
+        else:
+            return 1
+
+class HostCounter:
+    def __init__(self):
+        self.hosts = defaultdict(Host)
+
+    def add_flow(self, client_ip):
+        self.hosts[client_ip].syn_received()
+
+    def flow_established(self, client_ip):
+        assert client_ip in self.hosts
+        self.hosts[client_ip].tcp_established()
+
+    def get_flow_policy(self, flow: FlowInfo):
+        client_ip = flow.client.ip
+        assert client_ip in self.hosts
+        return self.hosts[client_ip].get_policy()
 
 # address helpers
 
