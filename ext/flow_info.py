@@ -119,9 +119,7 @@ class HostCounter:
         assert client_ip in self.hosts
         self.hosts[client_ip].tcp_established()
 
-    def get_flow_policy(self, flow: FlowInfo):
-        client_ip = flow.client.ip
-        assert client_ip in self.hosts
+    def get_host_policy(self, client_ip):
         return self.hosts[client_ip].get_policy()
 
 # address helpers

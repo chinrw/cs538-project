@@ -69,8 +69,8 @@ class SYNProxy(EventMixin):
 
     def get_policy(self, tcp_packet: tcp):
         # policy is fixed for each flow
-        flow = self.flow_table.get(get_flow(tcp_packet))
-        flow_policy = self.stat.get_flow_policy(flow)
+        client_ip = tcp_packet.prev.srcip
+        flow_policy = self.stat.get_host_policy(client_ip)
 
         if flow_policy == 0:
             return self.syn_spoofing_policy
@@ -146,9 +146,8 @@ class SYNSpoofingPolicy(Policy):
         # flow exists
         flow = self.flow_table.get(get_flow(tcp_packet))
         log.debug("Sending SYN to server")
-        send_packet_out(
-            event.connection, flow.client_syn, event.port, self.dst_port(tcp_packet)
-        )
+        dst_port = self.dst_port(tcp_packet)
+        send_packet_out(event.connection, flow.client_syn, event.port, dst_port)
         flow.add_client_ack(tcp_packet)
 
     def handle_synack(self, event, tcp_packet: tcp):
