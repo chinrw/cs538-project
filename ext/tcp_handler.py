@@ -136,7 +136,7 @@ class SYNSpoofingPolicy(Policy):
     def handle_syn(self, event, tcp_packet: tcp):
         flow = FlowInfo(tcp_packet, 0)
         self.flow_table[get_flow(tcp_packet)] = flow
-        self.stat.add_flow(flow)
+        self.stat.add_flow(flow.client.ip)
         # Create and send a SYN-ACK packet with the modified sequence number
         synack = spoofed_synack(flow)
         log.debug("Sending SYNACK to client")
@@ -209,6 +209,28 @@ class WhitelistPolicy(Policy):
     def handle_tcp_in(self, event, tcp_packet):
         # TODO add spoofed ack
         if tcp_packet.SYN and not tcp_packet.ACK:
+            event.halt = True
+
             flow = FlowInfo(tcp_packet, 1)
             self.flow_table[get_flow(tcp_packet)] = flow
-        log.debug("pass whitelisted packet")
+            self.stat.add_flow(flow.client.ip)
+
+            log.debug("pass passive method syn packet")
+            send_packet_out(event.connection, tcp_packet, event.port, of.OFPP_FLOOD)
+        elif tcp_packet.SYN and tcp_packet.ACK:
+            event.halt = True
+            log.debug("pass passive method synack packet")
+            send_packet_out(event.connection, tcp_packet, event.port, of.OFPP_FLOOD)
+        elif tcp_packet.ACK and not tcp_packet.SYN:
+            flow = self.flow_table.get(get_flow(tcp_packet))
+            if flow.passive_state == FlowState.Established:
+                event.halt = False
+            else:
+                flow.passive_state = FlowState.Established
+                # TCP established, update statistics
+                self.stat.flow_established(flow.client.ip)
+       
+
+
+        
+        

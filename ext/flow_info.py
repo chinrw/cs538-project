@@ -56,6 +56,7 @@ class FlowInfo:
         self.server_tcp_window = tcp_packet.win
 
         self.policy = policy
+        self.passive_state = FlowState.Initial
 
         # state for policy 0
         self.proxy_seq = None
@@ -91,6 +92,7 @@ class Host:
     def __init__(self) -> None:
         self.in_flight = 0
         self.threshold  = 100
+        self.success = 0
 
     def set_threshold(self, num):
         self.threshold  = num
@@ -100,10 +102,11 @@ class Host:
 
     def tcp_established(self):
         self.in_flight -= 1
+        self.success += 1
         assert self.in_flight >= 0
 
     def get_policy(self):
-        if self.in_flight < self.threshold:
+        if self.in_flight < self.threshold and self.success > 1:
             return 1
         else:
             return 0
