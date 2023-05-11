@@ -97,21 +97,41 @@ class FlowInfo:
         return FlowState.Established # i.e. Spoofed ACK
 
 class Host:
-    def __init__(self) -> None:
+    def __init__(self):
         self.in_flight = 0
-        self.threshold = 100
+        self.threshold = 20
         self.success = 0
+
+        # heuristic to reset in_flight
+        self.history_len = 5
+        self.history = []
+        self.total = 0
 
     def set_threshold(self, num):
         self.threshold  = num
 
     def syn_received(self):
         self.in_flight += 1
+        # heuristic to reset in_flight
+        self.total += 1
 
     def tcp_established(self):
         self.in_flight -= 1
         self.success += 1
         assert self.in_flight >= 0
+
+        if self.in_flight < self.threshold:
+            return
+
+        # heuristic to reset in_flight
+        self.history.append(self.total)
+        self.history = self.history[-self.history_len:]
+        assert self.history
+        # in_flight does not increase for previous N connections
+        if len(self.history) < self.history_len:
+            return
+        if self.history[-1] - self.history[0] < self.history_len:
+            self.in_flight = min(self.in_flight, self.threshold // 2)
 
     def get_policy(self):
         if self.in_flight < self.threshold and self.success > 1:
