@@ -69,8 +69,14 @@ class SYNProxy(EventMixin):
 
     def get_policy(self, tcp_packet: tcp):
         # policy is fixed for each flow
-        client_ip = tcp_packet.prev.srcip
-        flow_policy = self.stat.get_host_policy(client_ip)
+        flow = self.flow_table.get(get_flow(tcp_packet))
+        if flow is None:
+            client_ip = tcp_packet.prev.srcip
+            flow_policy = self.stat.get_host_policy(client_ip)
+        else:
+            flow_policy = flow.policy
+        
+        log.debug("Flow policy: %s", flow_policy)
 
         if flow_policy == 0:
             return self.syn_spoofing_policy

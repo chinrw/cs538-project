@@ -62,11 +62,13 @@ class FlowInfo:
         self.server_tcp_window = tcp_packet.win
 
         self.policy = policy
-        self.passive_state = FlowState.Initial
 
         # state for policy 0
         self.proxy_seq = None
         self.server_seq = None
+
+        # state for policy 1
+        self.passive_state = FlowState.Initial
 
     def add_proxy_synack(self, tcp_packet: tcp):
         self.proxy_seq = tcp_packet.seq
@@ -97,7 +99,7 @@ class FlowInfo:
 class Host:
     def __init__(self) -> None:
         self.in_flight = 0
-        self.threshold  = 100
+        self.threshold = 100
         self.success = 0
 
     def set_threshold(self, num):
@@ -123,6 +125,9 @@ class HostCounter:
 
     def add_flow(self, client_ip):
         self.hosts[client_ip].syn_received()
+
+    def host_reset(self, client_ip):
+        del self.hosts[client_ip]
 
     def flow_established(self, client_ip):
         assert client_ip in self.hosts
