@@ -3,6 +3,7 @@ from collections import namedtuple
 from enum import Enum
 from random import randint
 from collections import defaultdict
+from pox.lib.packet import tcp_opt
 # for type hints
 from pox.lib.packet import tcp, ipv4, ethernet
 from typing import Tuple, Union
@@ -45,6 +46,11 @@ class FlowInfo:
         self.server_mac = packet.dst
 
         # saved packeets for later use
+        # trick: disable TSOPT to avoid translating TSecr
+        # TODO: translate TSecr
+        idx = tcp_packet.find_option(tcp_opt.TSOPT)
+        if idx is not None:
+            del tcp_packet.options[idx]
         self.client_syn = tcp_packet
         self.client_ack = None
 
